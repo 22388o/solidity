@@ -162,6 +162,8 @@ public:
 
 	std::map<std::string, unsigned> const& sourceIndices() const { return m_sourceIndices; }
 
+	bool immutableRegistered(VariableDeclaration const& _varDecl) const { return m_immutableVariables.count(&_varDecl); }
+
 private:
 	langutil::EVMVersion m_evmVersion;
 	RevertStrings m_revertStrings;

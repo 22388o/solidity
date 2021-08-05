@@ -34,21 +34,21 @@ void ImmutableValidator::analyze()
 	for (ContractDefinition const* contract: linearizedContracts)
 		for (VariableDeclaration const* stateVar: contract->stateVariables())
 			if (stateVar->value())
-				m_initializedStateVariables.emplace(stateVar);
+				stateVar->value()->accept(*this);
 
 	for (ContractDefinition const* contract: linearizedContracts)
 		for (VariableDeclaration const* stateVar: contract->stateVariables())
 			if (stateVar->value())
-				stateVar->value()->accept(*this);
-
-	for (ContractDefinition const* contract: linearizedContracts)
-		if (contract->constructor())
-			visitCallableIfNew(*contract->constructor());
+				m_initializedStateVariables.emplace(stateVar);
 
 	for (ContractDefinition const* contract: linearizedContracts)
 		for (std::shared_ptr<InheritanceSpecifier> const& inheritSpec: contract->baseContracts())
 			if (auto args = inheritSpec->arguments())
 				ASTNode::listAccept(*args, *this);
+
+	for (ContractDefinition const* contract: linearizedContracts)
+		if (contract->constructor())
+			visitCallableIfNew(*contract->constructor());
 
 	m_inConstructionContext = false;
 
@@ -63,6 +63,15 @@ void ImmutableValidator::analyze()
 
 	checkAllVariablesInitialized(m_currentContract.location());
 }
+
+bool ImmutableValidator::visit(Assignment const& _assignment)
+{
+	// Need to visit values first (rhs) as they might access other immutables.
+	_assignment.rightHandSide().accept(*this);
+	_assignment.leftHandSide().accept(*this);
+	return false;
+}
+
 
 bool ImmutableValidator::visit(FunctionDefinition const& _functionDefinition)
 {
@@ -214,12 +223,15 @@ void ImmutableValidator::analyseVariableReference(VariableDeclaration const& _va
 			);
 		m_initializedStateVariables.emplace(&_variableReference);
 	}
-	if (read && m_inConstructionContext)
+	if (
+		read &&
+		m_inConstructionContext &&
+		(!m_initializedStateVariables.count(&_variableReference) || write)
+	)
 		m_errorReporter.typeError(
 			7733_error,
 			_expression.location(),
-			"Immutable variables cannot be read during contract creation time, which means "
-			"they cannot be read in the constructor or any function or modifier called from it."
+			"Immutable variables cannot be read before they are initialized."
 		);
 }
 
